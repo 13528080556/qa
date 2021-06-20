@@ -32,6 +32,8 @@ class Header(enum.Enum):
 
 
 class OperationExcel:
+    config_excel_name = '基础配置'
+
     def __init__(self, excel_path):
         self.wb = openpyxl.load_workbook(excel_path)
 
@@ -41,7 +43,10 @@ class OperationExcel:
 
     @property
     def sheet_names(self):
-        return self.wb.sheetnames
+        sns = self.wb.sheetnames.copy()
+        if self.config_excel_name in sns:
+            sns.remove(self.config_excel_name)
+        return sns
 
     def get_sheet_data_by_name(self, name):
         return self.__get_sheet_data(name)
@@ -78,3 +83,13 @@ class OperationExcel:
 
     def __del__(self):
         self.wb.close()
+
+    @property
+    def config_excel_data(self):
+        res = {}
+        if self.config_excel_name in self.wb:
+            ws = self.wb[self.config_excel_name]
+            for row in range(1, ws.max_row + 1):
+                res[ws.cell(row=row, column=1).value] = ws.cell(row=row, column=2).value
+        return res
+

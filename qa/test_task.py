@@ -55,17 +55,31 @@ class TestTask:
                 for key, value in setup_result.items():
                     temp_json.set(key, value)
 
-        # 1. 获取 excel 数据
-        excel_data = ExcelDataHandler.run(path, self.config.excel_files)
+        if self.config.config_files:
+            testcases = []
+            for config_path in self.config.config_files:
+                _config = Config(os.path.join(path.project_path, config_path))
+                testcases.append(generate_testcase({
+                    'config': _config,
+                    'excel_data': ExcelDataHandler.run(path, _config.excel_files),
+                    'db': temp_json,
+                    'fixture': self.fixture_module,
+                    'path': path
+                }))
+            run_testcase(*testcases, info=info)
 
-        # 2. 生成 unittest 测试用例，并执行
-        run_testcase(generate_testcase({
-            'config': self.config,
-            'excel_data': excel_data,
-            'db': temp_json,
-            'fixture': self.fixture_module,
-            'path': path
-        }), info)
+        else:
+            # 1. 获取 excel 数据
+            excel_data = ExcelDataHandler.run(path, self.config.excel_files)
+
+            # 2. 生成 unittest 测试用例，并执行
+            run_testcase(generate_testcase({
+                'config': self.config,
+                'excel_data': excel_data,
+                'db': temp_json,
+                'fixture': self.fixture_module,
+                'path': path
+            }), info=info)
 
         # 测试任务 teardown
         teardown = self.teardown
@@ -73,6 +87,11 @@ class TestTask:
         format_print('teardown', teardown.__doc__)
         if callable(teardown):
             teardown()
+
+    def get_excel_data(self):
+        if self.config.config_files:
+            for config_path in self.config.config_files:
+                _config = Config(config_path)
 
 
 if __name__ == '__main__':

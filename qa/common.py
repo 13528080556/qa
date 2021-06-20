@@ -116,13 +116,17 @@ def generate_testcase(task):
                 response = requests.request(case.method, case.url, headers=case.headers,
                                             data=case.data.encode('utf-8').decode('latin1'), timeout=timeout)
             except Exception as e:
+                if isinstance(e, requests.exceptions.ReadTimeout):
+                    print(f'【异常】请求超时，该用例测试超时时间为 {timeout}')
                 raise e
             else:
                 log_request(response, timeout)
                 self._assert(case.expect, response)  # 断言
                 self._extract(case.extract, response)  # 提取数据
-            # TODO 数据库校验
+                case.response = response  # 给 case 对象绑定响应
 
+            # TODO 数据库校验
+            print('case: teardown:', case.teardown)
             if case.teardown:
                 name, args = CaseFixtureFormat.get_func_name_args(case.teardown, case)
                 format_print('Case TearDown', name, args, pre='\n')
@@ -148,10 +152,11 @@ def generate_testcase(task):
     return TestCase
 
 
-def run_testcase(testcase, info):
+def run_testcase(*testcase, info):
     suite = unittest.TestSuite()
     loader = unittest.TestLoader()
-    suite.addTest(loader.loadTestsFromTestCase(testcase))
+    for _case in testcase:
+        suite.addTest(loader.loadTestsFromTestCase(_case))
 
     start_time, path, config = info['start_time'], info['path'], info['config']
 
@@ -170,7 +175,7 @@ def run_testcase(testcase, info):
     format_print('report path:', report_path, pre='\n')
     if config.auto:
         web_hook = config.auto.get('web_hook')
-        if web_hook and config.auto.get('send'):
+        if web_hook and config.auto.get('send') == 'y':
             robot = WxWork(web_hook)
             robot.send_file(robot.upload(report_path))
 
@@ -196,8 +201,8 @@ class RequestDataFormatter:
         path = self.dependent_handler(self.excel_data[Header.CASE_URL], self.db)
         if self.https_re.match(path):
             return path
-        host = self.config.http.base_url
-        prefix = self.config.http.prefix
+        host = self.excel_data.get('inner_config').get('base_url') or self.config.http.base_url
+        prefix = self.excel_data.get('inner_config').get('prefix') or self.config.http.prefix
         if prefix.endswith('/'):
             prefix = prefix[:-1]
         if not path.startswith('/'):
@@ -212,7 +217,11 @@ class RequestDataFormatter:
     @property
     def headers(self):
         """返回请求头 dict """
-        header = copy.deepcopy(self.config.http.headers)
+        inner_headers = self.excel_data.get('inner_config').get('headers')
+        if inner_headers:
+            header = json.loads(inner_headers)
+        else:
+            header = copy.deepcopy(self.config.http.headers)
         case_header = json.loads(self.dependent_handler(self.excel_data[Header.CASE_HEADER], self.db)) \
             if self.excel_data[Header.CASE_HEADER] else {}
         header.update(case_header)
@@ -253,7 +262,11 @@ class RequestDataFormatter:
 
     @property
     def timeout(self):
-        return float(self.excel_data[Header.CASE_TIMEOUT]) if self.excel_data[Header.CASE_TIMEOUT] else 0
+        inner_timeout = self.excel_data.get('inner_config').get('timeout')
+        case_timeout = float(self.excel_data[Header.CASE_TIMEOUT]) if self.excel_data[Header.CASE_TIMEOUT] else 0
+        global_timeout = self.config.http.timeout or 1
+        timeout = case_timeout or inner_timeout or global_timeout
+        return timeout
 
     @property
     def row(self):
@@ -279,9 +292,11 @@ class ExcelDataHandler:
         result = []
         for excel in excel_files:
             temp = []
+            inner_config = OperationExcel(os.path.join(path.testcase, excel['name'])).config_excel_data
             for case in cls.get_data(path, excel):
                 if case[Header.CASE_RUN] and case[Header.CASE_RUN].strip().upper() == 'N':
                     continue
+                case['inner_config'] = inner_config
                 temp.append(case)
             result.extend(temp)
         return result

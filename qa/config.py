@@ -17,6 +17,10 @@ class Config:
         return _MetaConfig(**self.data.get('meta', {}))
 
     @property
+    def config_files(self):
+        return self.data.get('config_files', {})
+
+    @property
     def excel_files(self):
         return self.data.get('excel_files')
 
